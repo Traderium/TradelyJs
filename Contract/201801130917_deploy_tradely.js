@@ -3,8 +3,8 @@
 
 // In the example below, we are requiring the contract HelloWorld
 // which returns an abstraction that we can use for the deployment
-const SmashCoin = artifacts.require('TokiaToken')
+const Traderium = artifacts.require('TradelyJS')
 
 module.exports = function(deployer) {
-  deployer.deploy(SmashCoin)
+  deployer.deploy(Traderium)
 }
