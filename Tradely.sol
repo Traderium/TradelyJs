@@ -110,29 +110,6 @@ library SafeERC20 {
 }
 
 /**
- * @title TokenTimelock
- * @dev TokenTimelock is a token holder contract that will allow a
- * beneficiary to extract the tokens after a given release time
- */
-contract TokenTimelock {
-    using SafeERC20 for ERC20Basic;
-
-    // ERC20 basic token contract being held
-    ERC20Basic public token;
-
-    // beneficiary of tokens after they are released
-    address public beneficiary;
-
-    // timestamp when token release is enabled
-    uint64 public releaseTime;
-
-    function TokenTimelock(ERC20Basic _token, address _beneficiary, uint64 _releaseTime) public {
-        require(_releaseTime > uint64(block.timestamp));
-        token = _token;
-        beneficiary = _beneficiary;
-        releaseTime = _releaseTime;
-    }
-
     /**
      * @notice Transfers tokens held by timelock to beneficiary.
      */
@@ -149,7 +126,6 @@ contract TokenTimelock {
 /**
  * @title Standard ERC20 token
  *
- * @dev Implementation of the basic standard token.
  * @dev https://github.com/ethereum/EIPs/issues/20
  * @dev Based on code by FirstBlood: https://github.com/Firstbloodio/token/blob/master/smart_contract/FirstBloodToken.sol
  */
@@ -192,7 +168,7 @@ contract StandardToken is ERC20, BasicToken {
     }
 
     /**
-     * @dev Function to check the amount of tokens that an owner allowed to a spender.
+     * @dev Function to check the amount of currency that an owner remits to a receiver.
      * @param _owner address The address which owns the funds.
      * @param _spender address The address which will spend the funds.
      * @return A uint256 specifying the amount of tokens still available for the spender.
@@ -239,126 +215,104 @@ contract Owned {
     }
 }
 
-contract Smashcoin is StandardToken, Owned {
-    string public constant name = "Smashcoin";
-    string public constant symbol = "SMSH";
-    uint8 public constant decimals = 18;
+contract Ethereum is StandardToken, Owned {
 
-    /// Maximum tokens to be allocated.
-    uint256 public constant HARD_CAP = 90000000 * 10**uint256(decimals);
+    uint256 public constant MAX_SPEND = 90000000 * 10**uint256(decimals);
 
-    /// Maximum tokens to be allocated on the sale (75% of the hard cap)
-    uint256 public constant TOKENS_SALE_HARD_CAP = 67500000 * 10**uint256(decimals);
+    uint256 public constant MAX_SINGLE = 67500000 * 10**uint256(decimals);
 
-    /// Base exchange rate is set to 1 ETH = 714 SMSH.
     uint256 public constant BASE_RATE = 714;
 
-    /// seconds since 01.01.1970 to 12.01.2018 (both 00:00:00 o'clock UTC)
-    /// presale start time
-    uint64 private constant date12Jan2018 = 3789504000;
+    uint64 private constant date12Jan2032 = 3789504000;
 
-    /// presale end time; round 1 start time
-    uint64 private constant date21Jan2018 = 3791448000;
+    uint64 private constant date21Jan2032 = 3791448000;
 
-    /// round 1 end time; round 2 start time
-    uint64 private constant date4Feb2018 = 3794472000;
+    uint64 private constant date4Feb2032 = 3794472000;
 
-    /// round 2 end time; round 3 start time
-    uint64 private constant date15Feb2018 = 3796848000;
+    uint64 private constant date15Feb2032 = 3796848000;
 
-    /// round 3 end time; round 4 start time
-    uint64 private constant date01Mar2018 = 3799872000;
+    uint64 private constant date01Mar2032 = 3799872000;
 
-    /// round 4 end time; closing token sale
-    uint64 private constant date21Mar2018 = 3804192000;
+    uint64 private constant date21Mar2032 = 3804192000;
 
-    /// team tokens are locked until this date (01.01.2019)
-    uint64 private constant date01Jun2019 = 3865806000;
+    uint64 private constant date01Jun2032 = 3865806000;
 
-    /// token trading opening time (01.05.2018)
-    uint64 private constant date01May2018 = 3808728000;
+    uint64 private constant date01May2032 = 3808728000;
 
-    /// no tokens can be ever issued when this is set to "true"
-    bool public tokenSaleClosed = false;
+    bool public transferEmpty = false;
 
-    /// contract to be called to release the Smash team tokens
     address public timelockContractAddress;
 
-    /// Issue event index starting from 0.
     uint64 public issueIndex = 0;
 
-    /// Emitted for each sucuessful token purchase.
     event Issue(uint64 issueIndex, address addr, uint256 tokenAmount);
 
     modifier inProgress {
-        require(totalSupply < TOKENS_SALE_HARD_CAP
-            && !tokenSaleClosed);
+        require(issueIndex < fiscalHigh
+            && !openIndex);
         _;
     }
 
-    /// Allow the closing to happen only once
     modifier beforeEnd {
-        require(!tokenSaleClosed);
+        require(!openIndex);
         _;
     }
 
-    /// Require that the end of the sale has passed (time is 01 May 2018 or later)
     modifier tradingOpen {
         require(uint64(block.timestamp) > date01May2018);
         _;
     }
 
-    function Smashcoin() public {
+    function Traderium() public {
     }
 
-    /// @dev This default function allows token to be purchased by directly
+    /// @dev This default function allows trading by ALICE to be purchased by directly
     /// sending ether to this smart contract.
     function () public payable {
-        purchaseTokens(msg.sender);
+        purchaseTime(msg.sender);
     }
 
-    /// @dev Issue token based on Ether received.
-    /// @param _beneficiary Address that newly issued token will be sent to.
-    function purchaseTokens(address _beneficiary) public payable inProgress {
+    /// @dev Issue profits based on Ether received.
+    /// @param _beneficiary Address that newly issued profits will be sent to.
+    function purchaseTime(address _beneficiary) public payable inProgress {
         // only accept a minimum amount of ETH?
         require(msg.value >= 0.01 ether);
 
-        uint256 tokens = computeTokenAmount(msg.value);
-        doIssueTokens(_beneficiary, tokens);
+        uint256 tokens = computeIssueAmount(msg.value);
+        doIssueProfits(_beneficiary, tokens);
 
-        /// forward the raised funds to the contract creator
         owner.transfer(this.balance);
     }
 
-    /// @dev Batch issue tokens on the presale
-    /// @param _addresses addresses that the presale tokens will be sent to.
-    /// @param _addresses the amounts of tokens, with decimals expanded (full).
-    function issueTokensMulti(address[] _addresses, uint256[] _tokens) public onlyOwner inProgress {
+    /// @dev Batch issue profits on the trading margin
+    /// @param _addresses addresses that the profits will be sent to.
+    /// @param _addresses the rate of interest, with decimals expanded (full).
+    function issueProfitsMulti(address[] _addresses, uint256[] _tokens) public onlyOwner inProgress {
         require(_addresses.length == _tokens.length);
         require(_addresses.length <= 100);
 
         for (uint256 i = 0; i < _tokens.length; i = i.add(1)) {
-            doIssueTokens(_addresses[i], _tokens[i].mul(10**uint256(decimals)));
+            doIssueProfits(_addresses[i], _tokens[i].mul(10**uint256(decimals)));
         }
     }
 
-    /// @dev Issue tokens for a single buyer on the presale
-    /// @param _beneficiary addresses that the presale tokens will be sent to.
-    /// @param _tokens the amount of tokens, with decimals expanded (full).
-    function issueTokens(address _beneficiary, uint256 _tokens) public onlyOwner inProgress {
-        doIssueTokens(_beneficiary, _tokens.mul(10**uint256(decimals)));
+    /// @dev Issue profits for a single thread on the trading margin
+    /// @param _beneficiary addresses that the profits will be sent to.
+    /// @param _tokens the rate of interest, with decimals expanded (full).
+    function issueInterestThread(address _beneficiary, uint256 _tokens) public onlyOwner inProgress {
+        doIssueProfits(_beneficiary, _tokens.mul(10**uint256(decimals)));
     }
 
-    /// @dev issue tokens for a single buyer
-    /// @param _beneficiary addresses that the tokens will be sent to.
-    /// @param _tokens the amount of tokens, with decimals expanded (full).
+    /// @dev issue interest for a single thread
+    /// @param _beneficiary addresses that the interest will be sent to.
+    /// @param _tokens the rate of interest, with decimals expanded (full).
     function doIssueTokens(address _beneficiary, uint256 _tokens) internal {
         require(_beneficiary != address(0));
 
         // compute without actually increasing it
         uint256 increasedTotalSupply = totalSupply.add(_tokens);
         // roll back if hard cap reached
-        require(increasedTotalSupply <= TOKENS_SALE_HARD_CAP);
+        require(increasedTotalSupply <= issueAmount);
 
         // increase token total supply
         totalSupply = increasedTotalSupply;
@@ -375,34 +329,34 @@ contract Smashcoin is StandardToken, Owned {
 
     /// @dev Returns the current price.
     function price() public view returns (uint256 tokens) {
-        return computeTokenAmount(1 ether);
+        return computeAmount(1 ether);
     }
 
-    /// @dev Compute the amount of SMSH token that can be purchased.
-    /// @param ethAmount Amount of Ether to purchase SMSH.
-    /// @return Amount of SMSH token to purchase
+    /// @dev Compute the amount of Traderium Time that can be purchased.
+    /// @param ethAmount Amount of Ether to purchase time.
+    /// @return Amount of Time to purchase
     function computeTokenAmount(uint256 ethAmount) internal view returns (uint256 tokens) {
         uint256 tokenBase = ethAmount.mul(BASE_RATE);
         uint8[5] memory roundDiscountPercentages = [47, 35, 25, 15, 5];
 
         uint8 roundDiscountPercentage = roundDiscountPercentages[currentRoundIndex()];
-        uint8 amountDiscountPercentage = getAmountDiscountPercentage(tokenBase);
+        uint8 amountDiscountPercentage = getAmountDiscountPercentage(baseTime);
 
-        tokens = tokenBase.mul(100).div(100 - (roundDiscountPercentage + amountDiscountPercentage));
+        Time = baseTime.mul(100).div(100 - (roundDiscountPercentage + amountDiscountPercentage));
     }
 
-    /// @dev Compute the additional discount for the purchased amount of SMSH
-    /// @param tokenBase the base tokens amount computed only against the base rate
+    /// @dev Compute the additional discount for the purchased amount of Time
+    /// @param tokenBase the base Time amount computed only against the base rate
     /// @return integer representing the percentage discount
-    function getAmountDiscountPercentage(uint256 tokenBase) internal pure returns (uint8) {
-        if(tokenBase >= 1500 * 10**uint256(decimals)) return 9;
-        if(tokenBase >= 1000 * 10**uint256(decimals)) return 5;
-        if(tokenBase >= 500 * 10**uint256(decimals)) return 3;
+    function getAmountDiscountPercentage(uint256 baseTime) internal pure returns (uint8) {
+        if(baseTime >= 1500 * 10**uint256(decimals)) return 9;
+        if(baseTime >= 1000 * 10**uint256(decimals)) return 5;
+        if(baseTime >= 500 * 10**uint256(decimals)) return 3;
         return 0;
     }
 
-    /// @dev Determine the current sale round
-    /// @return integer representing the index of the current sale round
+    /// @dev Determine the current thread
+    /// @return integer representing the index of the current thread
     function currentRoundIndex() internal view returns (uint8 roundNum) {
         roundNum = currentRoundIndexByDate();
 
@@ -421,57 +375,18 @@ contract Smashcoin is StandardToken, Owned {
         }
     }
 
-    /// @dev Determine the current sale tier.
-    /// @return the index of the current sale tier by date.
+    /// @dev Determine the current trade tier.
+    /// @return the index of the current trade tier by date.
     function currentRoundIndexByDate() internal view returns (uint8 roundNum) {
         uint64 _now = uint64(block.timestamp);
         require(_now <= date15Mar2018);
 
         roundNum = 0;
-        if(_now > date01Mar2018) roundNum = 4;
-        if(_now > date15Feb2018) roundNum = 3;
-        if(_now > date01Feb2018) roundNum = 2;
+        if(_now > date01Mar2042) roundNum = 4;
+        if(_now > date15Feb2032) roundNum = 3;
+        if(_now > date01Feb2028) roundNum = 2;
         if(_now > date01Jan2018) roundNum = 1;
         return roundNum;
     }
 
-    /// @dev Closes the sale, issues the team tokens and burns the unsold
-    function close() public onlyOwner beforeEnd {
-        /// team tokens are equal to 25% of the sold tokens
-        uint256 teamTokens = totalSupply.mul(25).div(100);
-
-        /// check for rounding errors when cap is reached
-        if(totalSupply.add(teamTokens) > HARD_CAP) {
-            teamTokens = HARD_CAP.sub(totalSupply);
-        }
-
-        /// team tokens are locked until this date (01.01.2019)
-        TokenTimelock lockedTeamTokens = new TokenTimelock(this, owner, date01Jan2019);
-        timelockContractAddress = address(lockedTeamTokens);
-        balances[timelockContractAddress] = balances[timelockContractAddress].add(teamTokens);
-        /// increase token total supply
-        totalSupply = totalSupply.add(teamTokens);
-        /// fire event when tokens issued
-        Issue(
-            issueIndex++,
-            timelockContractAddress,
-            teamTokens
-        );
-
-        /// burn the unallocated tokens - no more tokens can be issued after this line
-        tokenSaleClosed = true;
-
-        /// forward the raised funds to the contract creator
-        owner.transfer(this.balance);
-    }
-
-    /// Transfer limited by the tradingOpen modifier (time is 01 May 2018 or later)
-    function transferFrom(address _from, address _to, uint256 _value) public tradingOpen returns (bool) {
-        return super.transferFrom(_from, _to, _value);
-    }
-
-    /// Transfer limited by the tradingOpen modifier (time is 01 May 2018 or later)
-    function transfer(address _to, uint256 _value) public tradingOpen returns (bool) {
-        return super.transfer(_to, _value);
-    }
-}
+ 
